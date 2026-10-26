@@ -1,0 +1,379 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum UserRole {
+  STUDENT
+  ADMIN
+}
+
+enum KnowledgeLevel {
+  NONE
+  BASIC
+  WORKING
+  STRONG
+}
+
+enum AbilityLevel {
+  NONE
+  BASIC
+  WORKING
+  STRONG
+}
+
+enum EvidenceLevel {
+  MISSING
+  PARTIAL
+  GOOD
+  STRONG
+}
+
+enum JobEntryLevelStatus {
+  ACCEPTED
+  REJECTED
+  REVIEW
+}
+
+enum JobStatus {
+  ACTIVE
+  STALE
+  EXPIRED
+}
+
+enum JobProcessingStatus {
+  PENDING
+  PROCESSING
+  PROCESSED
+  ERROR
+}
+
+enum JobCollectionRunStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+  PARTIAL
+}
+
+enum AcademicEventType {
+  EXAM
+  ASSIGNMENT
+  PROJECT_REVIEW
+  INTERNAL_ASSESSMENT
+  DEADLINE
+  CUSTOM
+}
+
+enum AcademicWorkload {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum RecommendationStatus {
+  ACTIVE
+  COMPLETED
+  DISMISSED
+}
+
+model User {
+  id                 String             @id @default(uuid()) @db.Uuid
+  email              String             @unique
+  passwordHash       String
+  name               String
+  education          String?
+  graduationYear     Int?
+  targetRoleId       String?            @db.Uuid
+  careerHoursPerWeek Int                @default(14)
+  role               UserRole           @default(STUDENT)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  targetRole         Role?              @relation(fields: [targetRoleId], references: [id])
+  studentSkills      StudentSkill[]
+  projects           Project[]
+  academicEvents     AcademicEvent[]
+  recommendations    Recommendation[]
+}
+
+model Role {
+  id              String             @id @default(uuid()) @db.Uuid
+  code            String             @unique
+  name            String
+  description     String
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  users           User[]
+  roleSkills      RoleSkill[]
+  jobPostings     JobPosting[]
+  marketSnapshots MarketSnapshot[]
+  recommendations Recommendation[]
+}
+
+model Skill {
+  id              String             @id @default(uuid()) @db.Uuid
+  code            String             @unique
+  name            String             @unique
+  description     String
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  aliases         SkillAlias[]
+  roleSkills      RoleSkill[]
+  jobSkills       JobSkill[]
+  studentSkills   StudentSkill[]
+  projectSkills   ProjectSkill[]
+  marketSnapshots MarketSnapshot[]
+  recommendations Recommendation[]
+}
+
+model SkillAlias {
+  id              String   @id @default(uuid()) @db.Uuid
+  alias           String
+  normalizedAlias String
+  skillId         String   @db.Uuid
+  createdAt       DateTime @default(now())
+
+  skill           Skill    @relation(fields: [skillId], references: [id])
+
+  @@unique([skillId, normalizedAlias])
+  @@index([normalizedAlias])
+  @@index([skillId])
+}
+
+model RoleSkill {
+  id             String   @id @default(uuid()) @db.Uuid
+  roleId         String   @db.Uuid
+  skillId        String   @db.Uuid
+  relevanceScore Int
+  isCore         Boolean
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  role           Role     @relation(fields: [roleId], references: [id])
+  skill          Skill    @relation(fields: [skillId], references: [id])
+
+  @@unique([roleId, skillId])
+  @@index([roleId])
+  @@index([skillId])
+}
+
+model JobPosting {
+  id                       String               @id @default(uuid()) @db.Uuid
+  externalId               String
+  provider                 String
+  title                    String
+  company                  String
+  location                 String
+  description              String
+  sourceUrl                String
+  postedDate               DateTime?
+  updatedDate              DateTime?
+  firstSeenAt              DateTime
+  lastSeenAt               DateTime
+  lastCheckedAt            DateTime
+  status                   JobStatus
+  entryLevelStatus         JobEntryLevelStatus
+  entryLevelReason         String?
+  primaryRoleId            String?              @db.Uuid
+  classificationMethod     String?
+  classificationConfidence Float?
+  processingStatus         JobProcessingStatus
+  processingError          String?
+  jobCollectionRunId       String?              @db.Uuid
+  rawData                  Json
+  createdAt                DateTime             @default(now())
+  updatedAt                DateTime             @updatedAt
+
+  primaryRole              Role?                @relation(fields: [primaryRoleId], references: [id])
+  skills                   JobSkill[]
+  jobCollectionRun         JobCollectionRun?    @relation(fields: [jobCollectionRunId], references: [id], onDelete: SetNull)
+
+  @@unique([provider, externalId])
+  @@index([primaryRoleId])
+  @@index([entryLevelStatus])
+  @@index([processingStatus])
+  @@index([status])
+  @@index([postedDate])
+  @@index([lastCheckedAt])
+  @@index([jobCollectionRunId])
+}
+
+model JobSkill {
+  id               String   @id @default(uuid()) @db.Uuid
+  jobId            String   @db.Uuid
+  skillId          String   @db.Uuid
+  extractionMethod String
+  confidence       Float
+  createdAt        DateTime @default(now())
+
+  job              JobPosting @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  skill            Skill      @relation(fields: [skillId], references: [id])
+
+  @@unique([jobId, skillId])
+  @@index([jobId])
+  @@index([skillId])
+}
+
+model JobCollectionRun {
+  id              String                 @id @default(uuid()) @db.Uuid
+  provider        String
+  status          JobCollectionRunStatus
+  startedAt       DateTime
+  finishedAt      DateTime?
+  queriesExecuted Int
+  jobsReceived    Int
+  jobsNew         Int
+  jobsUpdated     Int
+  jobsDuplicate   Int
+  jobsRejected    Int
+  jobsReview      Int
+  jobsAccepted    Int
+  errors          Int
+  errorSummary    String?
+  queryDetails    Json?
+  createdAt       DateTime               @default(now())
+
+  jobs            JobPosting[]
+
+  @@index([provider])
+  @@index([status])
+  @@index([startedAt])
+}
+
+model MarketSnapshot {
+  id              String   @id @default(uuid()) @db.Uuid
+  roleId          String   @db.Uuid
+  skillId         String   @db.Uuid
+  periodStart     DateTime
+  periodEnd       DateTime
+  jobCount        Int
+  datasetSize     Int
+  demandPercentage Float
+  provider        String
+  geography       String
+  collectionStart DateTime
+  collectionEnd   DateTime
+  generatedAt     DateTime @default(now())
+
+  role            Role     @relation(fields: [roleId], references: [id])
+  skill           Skill    @relation(fields: [skillId], references: [id])
+
+  @@unique([roleId, skillId, periodStart, periodEnd, provider, geography])
+  @@index([roleId])
+  @@index([skillId])
+  @@index([periodStart])
+  @@index([periodEnd])
+}
+
+model StudentSkill {
+  id             String         @id @default(uuid()) @db.Uuid
+  studentId      String         @db.Uuid
+  skillId        String         @db.Uuid
+  knowledgeLevel KnowledgeLevel
+  abilityLevel   AbilityLevel
+  evidenceLevel  EvidenceLevel
+  notes          String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  student        User           @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  skill          Skill          @relation(fields: [skillId], references: [id])
+
+  @@unique([studentId, skillId])
+  @@index([studentId])
+  @@index([skillId])
+}
+
+model Project {
+  id                  String   @id @default(uuid()) @db.Uuid
+  studentId           String   @db.Uuid
+  title               String
+  description         String
+  githubUrl           String?
+  liveUrl             String?
+  features            String
+  implementationNotes String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  student             User           @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  skills              ProjectSkill[]
+
+  @@index([studentId])
+  @@index([createdAt])
+}
+
+model ProjectSkill {
+  id            String        @id @default(uuid()) @db.Uuid
+  projectId     String        @db.Uuid
+  skillId       String        @db.Uuid
+  evidenceLevel EvidenceLevel
+  evidenceNotes String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  project       Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  skill         Skill         @relation(fields: [skillId], references: [id])
+
+  @@unique([projectId, skillId])
+  @@index([projectId])
+  @@index([skillId])
+}
+
+model AcademicEvent {
+  id          String            @id @default(uuid()) @db.Uuid
+  studentId   String            @db.Uuid
+  type        AcademicEventType
+  title       String
+  description String
+  workload    AcademicWorkload
+  startDate   DateTime
+  endDate     DateTime
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  student     User              @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([studentId])
+  @@index([startDate])
+  @@index([endDate])
+}
+
+model Recommendation {
+  id                 String               @id @default(uuid()) @db.Uuid
+  studentId          String               @db.Uuid
+  roleId             String               @db.Uuid
+  skillId            String?              @db.Uuid
+  status             RecommendationStatus
+  priorityScore      Int
+  what               String
+  why                String
+  how                String
+  effortHours        Int
+  proof              String
+  when               String
+  marketRelevance    Int
+  roleRelevance      Int
+  gapSeverity        Int
+  evidenceGap        Int
+  academicConstraint Int
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  completedAt        DateTime?
+
+  student            User                 @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  role               Role                 @relation(fields: [roleId], references: [id])
+  skill              Skill?               @relation(fields: [skillId], references: [id])
+
+  @@index([studentId])
+  @@index([roleId])
+  @@index([skillId])
+  @@index([status])
+  @@index([priorityScore])
+}
